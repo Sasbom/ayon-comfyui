@@ -3,11 +3,11 @@ import "../../../../extensions/ayon_menu/lib/wsrpc.js";
 import {RPCServer} from "../../../../extensions/ayon_menu/lib/rpc_server.js"
 import {AYON_ORIGIN_ADRESS} from "../../../../extensions/ayon_menu/lib/consts.js"
 
-const AYON_EXTENSION_NAME = "comfy_ayon_menu"
+const AYON_EXTENSION_NAME = "AYON.ComfyMenu"
 const AYON_SIDEBAR_TAB_ID = "ayon"
 const AYON_SIDEBAR_ICON_CLASS = "ayon-sidebar-icon"
 const AYON_SIDEBAR_STYLE_ID = "ayon-sidebar-style"
-const AYON_ICON_URL = new URL("./assets/ayon-icon.png?v=20260506-ayon-icon", import.meta.url).href
+const AYON_ICON_URL = new URL("./assets/ayon-icon.png", import.meta.url).href
 const AYON_TOOL_ACTIONS = [
   {
     id: "showPublisher",
@@ -38,6 +38,12 @@ const AYON_TOOL_ACTIONS = [
     label: "Scene Inventory",
     tool_name: "sceneinventory",
     description: "Inspect AYON scene inventory items."
+  },
+  {
+    id: "showScriptEditor",
+    label: "Script Editor",
+    tool_name: "scripteditor",
+    description: "Open AYON Script Editor."
   }
 ]
 
@@ -56,7 +62,6 @@ function push_ayon_queue(function_name, args) {
 }
 
 function request_ayon_tool(tool_name) {
-  console.log(app.extensions);
   push_ayon_queue("ayonComfyUI.requestToolByName", {"tool_name": tool_name})
 }
 
@@ -108,6 +113,10 @@ function create_ayon_tool_panel(container) {
 
   root.append(header, actions)
   container.replaceChildren(root)
+}
+
+function get_workflow() {
+  return document.querySelector('#vue-app').__vue_app__.config.globalProperties.$pinia._s.get("workflow");
 }
 
 function ensure_ayon_sidebar_style() {
@@ -229,7 +238,7 @@ function register_ayon_sidebar_tab() {
 }
 
 app.registerExtension({
-    name: "comfy_ayon_menu",
+    name: AYON_EXTENSION_NAME,
     async afterConfigureGraph(graphData) {
 
         async function execute_single_node(node) {
@@ -544,7 +553,7 @@ app.registerExtension({
 
         function retrieve_latest_procqueue() {
           const exts = app.extensions;
-          const ext = exts.find((el) => el.name == "comfy_ayon_menu")
+          const ext = exts.find((el) => el.name == AYON_EXTENSION_NAME)
           if (ext.PROC_QUEUE.length > 0)
             return ext.PROC_QUEUE.pop()
           return null
@@ -579,10 +588,172 @@ app.registerExtension({
           return workfile
         })
 
-        this.IFRAMERPC.register('updateTab', (data) => {
-          console.log(data);
-          app.loadGraphData(app.graph.serialize(), true, true, data.new_name);
-          return true;
+        // Allow host to set arbitrary extra metadata on the currently opened graph
+        this.IFRAMERPC.register('setGraphExtra', (data) => {
+          try {
+            const extra_json = data.extra_json;
+            const extra = typeof extra_json === 'string' ? JSON.parse(extra_json) : extra_json;
+
+            // Update sessionStorage-stored workfile if present
+            const client = window.sessionStorage.getItem("clientId")
+            const workflow_key = `workflow:${client}`
+            let workfile = window.sessionStorage.getItem(workflow_key)
+            if (workfile == null){
+              workfile = get_workfiles_v2()
+            }
+
+            if (workfile) {
+              try {
+                const wf = typeof workfile === 'string' ? JSON.parse(workfile) : workfile;
+                wf.graph = wf.graph || {};
+                wf.graph.extra = wf.graph.extra || {};
+
+                Object.keys(extra).forEach((k) => {
+                  if (typeof extra[k] === 'object' && extra[k] !== null && typeof wf.graph.extra[k] === 'object') {
+                    wf.graph.extra[k] = { ...wf.graph.extra[k], ...extra[k] };
+                  } else {
+                    wf.graph.extra[k] = extra[k];
+                  }
+                });
+
+                window.sessionStorage.setItem(workflow_key, JSON.stringify(wf));
+              } catch (e) {
+                console.warn('Failed to update session-stored workfile:', e);
+              }
+            }
+
+            // Also attempt to update in-memory graph representation
+            if (app && app.graph && typeof app.graph.serialize === 'function') {
+              const g = app.graph.serialize();
+              g.extra = g.extra || {};
+              Object.keys(extra).forEach((k) => {
+                if (typeof extra[k] === 'object' && extra[k] !== null && typeof g.extra[k] === 'object') {
+                  g.extra[k] = { ...g.extra[k], ...extra[k] };
+                } else {
+                  g.extra[k] = extra[k];
+                }
+              });
+              // reload graph data with merged extra without altering nodes
+              // Update app.graph.extra directly to avoid triggering a new tab.
+              try {
+                app.graph.extra = app.graph.extra || {};
+                Object.keys(extra).forEach((k) => {
+                  if (typeof extra[k] === 'object' && extra[k] !== null && typeof app.graph.extra[k] === 'object') {
+                    app.graph.extra[k] = { ...app.graph.extra[k], ...extra[k] };
+                  } else {
+                    app.graph.extra[k] = extra[k];
+                  }
+                });
+                // mark graph dirty so UI reflects the change
+                if (typeof app.graph.setDirtyCanvas === 'function') {
+                  app.graph.setDirtyCanvas(true, true);
+                }
+              } catch (e) {
+                console.warn('Failed to set graph.extra directly:', e);
+              }
+            }
+
+            return true;
+          } catch (err) {
+            console.warn('setGraphExtra failed:', err);
+            return false;
+          }
+        })
+
+        // Expose a simple getter that returns graph.extra.AYON.workfile_path when available
+        this.IFRAMERPC.register('getWorkfilePath', (data) => {
+          try {
+            // Prefer in-memory graph value
+            if (app && app.graph) {
+              try {
+                const g = app.graph.serialize ? app.graph.serialize() : app.graph;
+                if (g && g.extra && g.extra.AYON && g.extra.AYON.workfile_path) {
+                  return g.extra.AYON.workfile_path;
+                }
+                if (g && g.graph && g.graph.extra && g.graph.extra.AYON && g.graph.extra.AYON.workfile_path) {
+                  return g.graph.extra.AYON.workfile_path;
+                }
+              } catch (e) {
+                console.warn('Failed to read in-memory graph:', e);
+              }
+            }
+
+            // Fallback to session-stored workfile
+            const client = window.sessionStorage.getItem("clientId")
+            const workflow_key = `workflow:${client}`
+            let workfile = window.sessionStorage.getItem(workflow_key)
+            if (workfile == null){
+              workfile = get_workfiles_v2()
+            }
+
+            if (workfile) {
+              try {
+                const wf = typeof workfile === 'string' ? JSON.parse(workfile) : workfile;
+                const path = wf?.graph?.extra?.AYON?.workfile_path ?? wf?.extra?.AYON?.workfile_path ?? null;
+                return path ?? null;
+              } catch (e) {
+                console.warn('Failed to parse session-stored workfile:', e);
+                return null;
+              }
+            }
+
+            return null;
+          } catch (err) {
+            console.warn('getWorkfilePath failed:', err);
+            return null;
+          }
+        })
+
+        // Return the full graph.extra object (stringified JSON). If data.key(s) provided, return filtered value(s).
+        this.IFRAMERPC.register('getGraphExtra', (data) => {
+          try {
+            let extraObj = {};
+
+            // Prefer in-memory graph
+            if (app && app.graph) {
+              try {
+                const g = app.graph.serialize ? app.graph.serialize() : app.graph;
+                extraObj = g?.extra ?? g?.graph?.extra ?? {};
+              } catch (e) {
+                console.warn('Failed to read in-memory graph for getGraphExtra:', e);
+              }
+            }
+
+            // Fallback to session-stored workfile if empty
+            if ((!extraObj || Object.keys(extraObj).length === 0)) {
+              const client = window.sessionStorage.getItem("clientId")
+              const workflow_key = `workflow:${client}`
+              let workfile = window.sessionStorage.getItem(workflow_key)
+              if (workfile == null){
+                workfile = get_workfiles_v2()
+              }
+              if (workfile) {
+                try {
+                  const wf = typeof workfile === 'string' ? JSON.parse(workfile) : workfile;
+                  extraObj = wf?.graph?.extra ?? wf?.extra ?? {};
+                } catch (e) {
+                  console.warn('Failed to parse session-stored workfile for getGraphExtra:', e);
+                }
+              }
+            }
+
+            // If caller requested a specific key or list of keys, filter
+            if (data && data.key) {
+              return JSON.stringify(extraObj[data.key] ?? null);
+            }
+            if (data && Array.isArray(data.keys)) {
+              const out = {};
+              data.keys.forEach((k) => {
+                out[k] = extraObj[k] ?? null;
+              });
+              return JSON.stringify(out);
+            }
+
+            return JSON.stringify(extraObj);
+          } catch (err) {
+            console.warn('getGraphExtra failed:', err);
+            return JSON.stringify({});
+          }
         })
 
         this.IFRAMERPC.register('addPublishNode', (data) => {
@@ -726,7 +897,6 @@ app.registerExtension({
           return true
         });
 
-        
 
         this.IFRAMERPC.register('setImprintContext', (data) => {
           console.log("setting context...", data)
@@ -776,6 +946,22 @@ app.registerExtension({
           return true
         })
 
+        this.IFRAMERPC.register('save', async (data) => {
+          try {
+            console.log("Saving:", data)
+            const workflow = get_workflow().activeWorkflow
+
+            if (data && data.filename) {
+              await workflow.rename(data.filename)
+            }
+            await workflow.save()
+            return true
+          } catch (err) {
+            console.warn('save handler failed:', err)
+            return false
+          }
+        })
+
       
         //this.RPC.connect();
     },
@@ -785,11 +971,6 @@ app.registerExtension({
       label: "Ping Ayon Plugin Websocket RPC server", 
       function: () => {
         push_ayon_queue("ayonComfyUI.pingAyonMenu", {"message": "Ping from web"})
-        // ext.RPC.call('ayonComfyUI.pingAyonMenu', {"message" :`Ping from web`}).then(function (data) {
-        // console.log('pong: ', data);
-        // }, function (error) {
-        //   alert(error);
-        // });
       } 
     },
     ...AYON_TOOL_ACTIONS.map((action) => ({
@@ -799,121 +980,6 @@ app.registerExtension({
         request_ayon_tool(action.tool_name)
       }
     })),
-
-    {
-      id: "saveLocal",
-      label: "Ayon Save Workfile",
-      function: () => {
-        function showToast(text, duration = 2000) {
-          const el = document.createElement("div");
-          el.textContent = text;
-              
-          Object.assign(el.style, {
-              position: "fixed",
-              top: "10px",
-              left: "10px",
-              background: "#249b9b",
-              color: "white",
-              padding: "8px 12px",
-              borderRadius: "6px",
-              zIndex: 9999,
-              fontSize: "14px",
-              fontFamily: "sans-serif",
-              boxShadow: "0 2px 6px rgba(0,0,0,0.3)",
-              opacity: "1",
-              transition: "opacity 0.3s ease"
-          });
-        
-          // attach to ComfyUI root instead of body if possible
-          (app.canvasElRef?.parentElement || document.body).appendChild(el);
-        
-          setTimeout(() => {
-              el.style.opacity = "0";
-              setTimeout(() => el.remove(), 300);
-          }, duration);
-        }
-
-        // v2 adapter for newer comfyui
-        function get_workfiles_save() {
-          // Attempt OpenPaths first.
-          const clientId = window.sessionStorage.getItem("clientId");
-          const openpath_str = window.sessionStorage.getItem(`Comfy.Workflow.OpenPaths:${clientId}`)
-          let path_str = null
-          if (openpath_str !== null) {
-            const openpath_parse = JSON.parse(openpath_str)
-            path_str = openpath_parse.paths[openpath_parse.activeIndex]
-          } else {
-            path_str = window.sessionStorage.getItem(`Comfy.Workflow.ActivePath:${clientId}`);
-            if (!path_str) {
-              return null;
-            }
-            path_str = JSON.parse(path_str).path;
-          }
-          const path = path_str
-
-          if (!path) {
-            return null;
-          }
-
-          const draftindex_str = window.localStorage.getItem("Comfy.Workflow.DraftIndex.v2:personal");
-          if (!draftindex_str) {
-            return null;
-          }
-
-          const draftindex = JSON.parse(draftindex_str);
-          const keys = Object.keys(draftindex.entries);
-
-          const personal_key = keys.filter((key) => {
-            if (draftindex.entries[key].path == path) {
-              return true;
-            }
-          })[0]
-
-          if (personal_key === undefined){
-            return null;
-          }
-
-          const data_str = window.localStorage.getItem(`Comfy.Workflow.Draft.v2:personal:${personal_key}`);
-          
-          if (!data_str) {
-            return null;
-          }
-          // workfiles data as a string
-          const data = JSON.parse(data_str).data
-
-          return data
-        }
-        
-        console.log("called save local")
-        // Attempt OpenPaths first, to get current tab.  
-        const clientId = window.sessionStorage.getItem("clientId");
-        const openpath_str = window.sessionStorage.getItem(`Comfy.Workflow.OpenPaths:${clientId}`)
-        let path_str = null
-        if (openpath_str !== null) {
-          const openpath_parse = JSON.parse(openpath_str)
-          path_str = openpath_parse.paths[openpath_parse.activeIndex]
-        } else {
-          const activepath_str = window.sessionStorage.getItem(`Comfy.Workflow.ActivePath:${clientId}`);
-          path_str = JSON.parse(activepath_str).path;
-          if (!path_str) {
-            return null;
-          }
-        }
-        const path = path_str
-
-        const formatted_path = path.replace(".json","").replace("workflows/","")
-      
-
-        const workfile = get_workfiles_save()
-
-        push_ayon_queue("ayonComfyUI.requestSaveByName", {"file_name": `${formatted_path}`, "workfile_contents": `${workfile}`})
-
-        showToast("Ayon Saved!")
-        
-      }
-
-
-    },
   ],
   // Add commands to menu
   menuCommands: [

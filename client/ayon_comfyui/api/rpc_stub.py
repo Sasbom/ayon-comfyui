@@ -81,13 +81,6 @@ class RPCClientStub:  # noqa: PLR0904
         """Call getWorkfile."""
 
     @call_on_origin()
-    def updateTab(self, *, new_name: str):  # noqa: N802, ANN201
-        """Call updateTab.
-
-        switches context to a new tab with a new name.
-        """
-
-    @call_on_origin()
     def loadWorkfile(self, *, workfile_json: str, workfile_name: str):  # noqa: N802, ANN201
         """Call loadWorkfile."""
 
@@ -110,6 +103,35 @@ class RPCClientStub:  # noqa: PLR0904
     @call_on_origin()
     def setImprintContext(self, *, imprint_info: str) -> bool:  # noqa: N802, ANN201
         """Call setImprintContext."""
+
+    @call_on_origin()
+    def setGraphExtra(self, *, extra_json: str):  # noqa: N802, ANN201
+        """Call setGraphExtra.
+
+        Allows host to set arbitrary extra metadata on the currently opened graph.
+        """
+
+    @call_on_origin()
+    def save(self, *, filename: str | None = None):  # noqa: N802, ANN201
+        """Call save.
+
+        Instruct the client to save the current graph internally (session/local storage).
+        Accepts an optional filename to perform a 'Save As' for the current tab.
+        """
+
+    @call_on_origin()
+    def getWorkfilePath(self):  # noqa: N802, ANN201
+        """Call getWorkfilePath.
+
+        Returns stored workfile path metadata from active graph, or null.
+        """
+
+    @call_on_origin()
+    def getGraphExtra(self):  # noqa: N802, ANN201
+        """Call getGraphExtra.
+
+        Returns stringified JSON of graph.extra (or {}).
+        """
 
     def do_context_imprint(self, imprint_info: str = "No imprint.") -> bool:
         """Creates a node in the browser session.
@@ -402,6 +424,86 @@ class RPCStub:  # noqa : PLR0904
         json_data = json.dumps(data)
         log.debug(json_data)
         self.client_stub.do_context_imprint(imprint_info=json_data)
+
+    def set_graph_extra(self, extra: dict) -> bool:
+        """Set arbitrary extra metadata on the currently opened graph.
+
+        The extra dict will be merged into graph.extra on the client side.
+        Returns True on success, None/False on failure.
+        """
+        log.debug(f"set_graph_extra\n{extra}")  # noqa: G004
+        try:
+            json_data = json.dumps(extra)
+            result = self.client_stub.setGraphExtra(extra_json=json_data)
+            return result
+        except Exception as e:  # noqa: BLE001
+            log.debug(f"set_graph_extra failed: {e}")  # noqa: G004
+            return None
+
+    def set_workfile_path(self, path: str) -> bool:
+        """Convenience to set AYON.workfile_path in graph.extra.AYON."""
+        return self.set_graph_extra({"AYON": {"workfile_path": path}})
+
+    def save(self, filename: str | None = None) -> bool:
+        """Instruct the client to save the current graph internally for ComfyUI.
+
+        If filename is provided, perform Save As semantics and set the client
+        workflow path accordingly.
+        """
+        log.debug(f"save graph via client filename={filename}")
+        try:
+            if filename is not None:
+                result = self.client_stub.save(filename=filename)
+            else:
+                result = self.client_stub.save()
+            return result
+        except Exception as e:  # noqa: BLE001
+            log.debug(f"save failed: {e}")  # noqa: G004
+            return False
+
+    def get_workfile_path(self) -> str | None:
+        """Return the stored workfile path from the active graph, or None."""
+        log.debug("get_workfile_path")
+        try:
+            res = self.client_stub.getWorkfilePath()
+            # client returns null/None or a string
+            return res if res else None
+        except Exception as e:  # noqa: BLE001
+            log.debug(f"get_workfile_path failed: {e}")  # noqa: G004
+            return None
+
+    def get_graph_extra(self, key: str | list[str] | None = None):
+        """Retrieve graph.extra from client and optionally filter by key(s).
+
+        If key is None, returns the full extra dict.
+        If key is a string, returns extra.get(key) or None.
+        If key is a list of strings, returns dict of those keys.
+        """
+        log.debug(f"get_graph_extra key={key}")
+        try:
+            raw = self.client_stub.getGraphExtra()
+            if not raw:
+                return None if key and isinstance(key, str) else {}
+
+            # raw expected to be a JSON string
+            try:
+                data = json.loads(raw) if isinstance(raw, str) else raw
+            except Exception:
+                data = {}
+
+            if key is None:
+                return data
+
+            if isinstance(key, str):
+                return data.get(key)
+
+            if isinstance(key, list):
+                return {k: data.get(k) for k in key}
+
+            return data
+        except Exception as e:  # noqa: BLE001
+            log.debug(f"get_graph_extra failed: {e}")  # noqa: G004
+            return None
 
     def _load_context(self) -> MutableMapping:
         """Query load entire context operation.

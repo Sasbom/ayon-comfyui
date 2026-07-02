@@ -32,9 +32,7 @@ class CollectImage(pyblish.api.InstancePlugin):
         for image in image_urls:
             self.log.debug("Downloading image: %s", image)
             parse = urlsplit(image)
-            self.log.debug(parse)
             query = parse_qs(parse.query)
-            self.log.debug(query)
             filename = next(iter(query.get("filename")), None)
             if filename is None:
                 continue
@@ -47,8 +45,6 @@ class CollectImage(pyblish.api.InstancePlugin):
             )
             Path(destination).parent.mkdir(parents=True, exist_ok=True)
             urlretrieve(image, destination)  # noqa: S310
-
-        instance.context.data["currentFile"] = files[0]
 
         if len(files) == 1:
             files = files[0]
@@ -67,8 +63,6 @@ class CollectImage(pyblish.api.InstancePlugin):
                 "tags": ["review"],
             }
         )
-
-        # NOTE(@sas): Maybe generate a tiled image for batched images
 
         thumbnail_img = files
         if isinstance(thumbnail_img, list):
