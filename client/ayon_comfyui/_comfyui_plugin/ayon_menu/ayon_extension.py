@@ -9,6 +9,7 @@ from comfy_api.latest import ComfyExtension, io
 from typing_extensions import override
 
 from .nodes.context_node import AyonContextNode
+from .nodes.load_generic import AyonLoadGenericNode
 from .nodes.load_nodes import (
     AyonLoad3DModelNode,
     AyonLoadImageNode,
@@ -32,6 +33,7 @@ class AyonComfyUIExtension(ComfyExtension):
             AyonSaveVideoNode,
             AyonSave3DModelNode,
             AyonContextNode,
+            AyonLoadGenericNode,
             AyonLoadImageNode,
             AyonLoadVideoNode,
             AyonLoad3DModelNode,

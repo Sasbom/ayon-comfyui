@@ -564,7 +564,6 @@ app.registerExtension({
           return JSON.stringify(foundNodes)
         })
 
-
         this.IFRAMERPC.register('getWorkfile', (data) => {
           // Fetch clientId from session storage,
           // because workflows are saved as workflow:<id>
