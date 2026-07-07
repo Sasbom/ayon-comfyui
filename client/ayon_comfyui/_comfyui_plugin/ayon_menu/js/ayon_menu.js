@@ -585,6 +585,23 @@ app.registerExtension({
           return true;
         })
 
+        this.IFRAMERPC.register('createNode', (data) => {
+
+          console.log("[createNode] creating node...", data.node_type)
+          const node = addNodeAtCenter(data.node_type)
+
+          for (const [key, value] of Object.entries(data.data)) {
+            const widget = node.widgets.find(widget => widget.name == key)
+            if (widget) {
+              console.log("[createNode] setting widget value", {key, value, widget})
+              widget.value = value
+            } else {
+              console.log(`[Warning] Node ${data.node_type} does not have widget ${key}.`)
+            }
+          }
+          return true
+        })
+
         this.IFRAMERPC.register('addPublishNode', (data) => {
           console.log("adding node...")
           const nodeType = data.node_type

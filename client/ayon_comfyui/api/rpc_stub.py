@@ -237,6 +237,21 @@ class RPCClientStub:  # noqa: PLR0904
         return None
 
     @call_on_origin()
+    def createNode(  # noqa: N802
+        self,
+        *,
+        node_type: str,
+        data: dict,
+    ) -> None:
+        """Create a new node of the given type.
+
+        Args:
+            node_type: The type of node to create.
+            data: The data to set on the node.
+
+        """
+
+    @call_on_origin()
     def addPublishNode(self, *, instance_json: str, node_type: str):  # noqa: N802, ANN201
         """Call addPublishNode."""
 
@@ -693,6 +708,10 @@ class RPCStub:  # noqa : PLR0904
             self.client_stub.updateLoadProductNode(
                 container_json=container_json
             )
+
+    def create_node(self, node_type: str, parms: dict) -> None:
+        """Create a node with the given type and parameters."""
+        self.client_stub.createNode(node_type=node_type, data=parms)
 
     def create_publish_node(
         self,
