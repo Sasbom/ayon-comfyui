@@ -15,9 +15,7 @@ class AyonBaseNode(io.ComfyNode):
 
     @classmethod  # pyright: ignore[reportArgumentType]
     def define_inputs(cls) -> list[io.Input]:
-        return [
-            io.String.Input("ayon_container_info", "AYON context"),
-        ]
+        pass
 
     @classmethod  # pyright: ignore[reportArgumentType]
     def define_outputs(cls) -> list[io.Output]:

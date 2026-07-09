@@ -11,8 +11,13 @@ from typing import TYPE_CHECKING, Any, Callable, ClassVar
 
 import aiohttp.web
 from ayon_api import get_representations
+import ayon_api
 from ayon_core.tools.utils import host_tools
 from wsrpc_aiohttp import Route, WebSocketAsync, decorators
+from ayon_core.pipeline.load.utils import (
+    get_representation_by_names,
+    get_representation_path
+)
 
 from ayon_comfyui.api.consts import LOG_LEVEL
 from ayon_comfyui.api.util import extract_default_kwargs
@@ -139,6 +144,134 @@ class AyonLocalHost(Route):
     async def pingAyonMenu(self, message: str) -> str:  # noqa: PLR6301, N802
         """Returns message sent from server."""
         return message
+
+    @decorators.proxy
+    async def getFolders(self, project_name: str) -> list[str]:
+        """Returns message sent from server."""
+        return sorted(
+            folder["path"] for folder in ayon_api.get_folders(project_name)
+        )
+
+    @decorators.proxy
+    async def getProductNames(
+        self, project_name: str, folder_path: str
+    ) -> list[str]:
+        """Returns message sent from server."""
+        folder = ayon_api.get_folder_by_path(project_name, folder_path)
+        if not folder:
+            return []  # TODO: raise error
+
+        return sorted(
+            product["name"]
+            for product in ayon_api.get_products(
+                project_name, folder_ids=[folder["id"]]
+            )
+        )
+
+    @decorators.proxy
+    async def getVersions(
+        self,
+        project_name: str,
+        folder_path: str,
+        product_name: str,
+    ) -> list[str]:
+        """Returns message sent from server."""
+        folder = ayon_api.get_folder_by_path(project_name, folder_path)
+        if not folder:
+            return []  # TODO: raise error
+
+        product = ayon_api.get_product_by_name(
+            project_name,
+            product_name=product_name,
+            folder_id=folder["id"],
+        )
+        if not product:
+            return []  # TODO: raise error
+        return sorted(
+            [version["name"]
+            for version in ayon_api.get_versions(
+                project_name, product_ids=[product["id"]]
+            )],
+            reverse=True,
+        )
+
+    @decorators.proxy
+    async def getRepresentations(
+        self,
+        project_name: str,
+        folder_path: str,
+        product_name: str,
+        version: str,
+    ) -> list[str]:
+        """Returns message sent from server."""
+        folder = ayon_api.get_folder_by_path(project_name, folder_path)
+        if not folder:
+            return []  # TODO: raise error
+
+        product = ayon_api.get_product_by_name(
+            project_name,
+            product_name=product_name,
+            folder_id=folder["id"],
+        )
+        if not product:
+            return []  # TODO: raise error
+
+        version = version.strip().removeprefix("v")
+        version_number = int(version)
+
+        version_entity = ayon_api.get_version_by_name(
+            project_name,
+            version=version_number,
+            product_id=product["id"],
+        )
+        if not version_entity:
+            return []  # TODO: raise error
+
+        return sorted(
+            representation["name"] for representation in
+            ayon_api.get_representations(
+                project_name, version_ids=[version_entity["id"]]
+            )
+        )
+
+    @decorators.proxy
+    async def getRepresentation(
+        self,
+        project_name: str,
+        folder_path: str,
+        product_name: str,
+        version: str | int,
+        representation_name: str,
+    ) -> dict:
+        """Returns message sent from server."""
+        if isinstance(version, str):
+            version = version.strip().removeprefix("v")
+            version_number = int(version)
+        else:
+            version_number = version
+
+        representation = get_representation_by_names(
+            project_name=project_name,
+            folder_path=folder_path,
+            product_name=product_name,
+            version_name=version_number,
+            representation_name=representation_name,
+        )
+
+        if not representation:
+            return {}  # TODO: raise error
+
+        representation_id = representation["id"]
+
+        path = get_representation_path(
+            project_name,
+            representation,
+        )
+
+        return {
+            "id": representation_id,
+            "path": path,
+        }
 
     @decorators.proxy
     async def requestToolByName(self, tool_name: str) -> None:  # noqa: N802

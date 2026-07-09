@@ -77,4 +77,10 @@ window.onload = async (e) => {
   // spam the polling endpoint.
   const PollProc = setInterval(poll_rpc, 100);
 
+
+  IFRAME_RPC.register('clientMethod', async (data) => {
+      const {method, params} = data;
+      return await RPC.call(method, params);
+  })
+
 }

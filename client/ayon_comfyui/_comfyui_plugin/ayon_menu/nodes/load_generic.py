@@ -1,15 +1,13 @@
 from __future__ import annotations
 
 # IMPORT STANDARD LIBRARIES
-import json
 import typing
 
 # IMPORT THIRD PARTY LIBRARIES
-from comfy_api.latest import io, ui
+from comfy_api.latest import io
 
 # IMPORT LOCAL LIBRARIES
 from ._base_node import AyonBaseNode
-from ..lib import get_representation_by_names, fill_roots
 
 
 class AyonLoadGenericNode(AyonBaseNode):
@@ -20,22 +18,15 @@ class AyonLoadGenericNode(AyonBaseNode):
     category = "AYON"
 
     @classmethod
-    def define_inputs(cls) -> list[io.Input]:
-
+    def define_inputs(cls):
         return [
             io.String.Input("project", "Project"),
-            io.String.Input("folder_path", "Folder Path"),
-            io.String.Input("product", "Product"),
-            io.String.Input("version", "Version"),
-            io.String.Input("representation", "Representation"),
-
-            # TODO: make this read only
-            # io.String.Input(
-            #     "representation_id",
-            #     "Representation ID",
-            #     socketless=True,
-            #     optional=True,
-            # ),  # noqa: E501
+            io.Combo.Input("folder_path", display_name="Folder Path", options=[]),
+            io.Combo.Input("product", display_name="Product", options=[]),
+            io.Combo.Input("version", display_name="Version", options=[]),
+            io.Combo.Input("representation", display_name="Representation", options=[]),
+            io.String.Input("representation_id", "Representation ID"),
+            io.String.Input("filepath", "Filepath"),
         ]
 
     @classmethod
@@ -46,52 +37,18 @@ class AyonLoadGenericNode(AyonBaseNode):
                 display_name="Filepath",
                 tooltip="main filepath to the representation",
             ),
-            io.String.Output(
-                id="files",
-                display_name="Files",
-                tooltip="List of files in the representation",
-                is_output_list=True,
-            ),
         ]
 
     @classmethod
-    def execute(  # ty:ignore[invalid-method-override]  # pyright: ignore[reportIncompatibleMethodOverride]
+    def validate_inputs(cls, **kwargs) -> bool | str:
+        # the default validation fails because our combo options
+        # are dynamically generated
+        return True
+
+    @classmethod
+    async def execute(  # ty:ignore[invalid-method-override]  # pyright: ignore[reportIncompatibleMethodOverride]
         cls,
-        project: str,
-        folder_path: str,
-        product: str,
-        version: str,
-        representation: str,
+        filepath: str,
         **kwargs: typing.Any,
     ) -> io.NodeOutput:
-        representation_entity = get_representation_by_names(
-            project,
-            folder_path,
-            product,
-            version,
-            representation,
-        )
-        if not representation_entity:
-            raise ValueError(f"Representation {representation} not found")
-
-        attrib = representation_entity.get("allAttrib", {})
-        if isinstance(attrib, str):
-            attrib = json.loads(attrib)
-
-        path = attrib.get("path", "")
-        path = fill_roots(path)
-
-        files = representation_entity.get("files", [])
-        paths = []
-        for file in files:
-            path = file.get("path", "")
-            path = fill_roots(path)
-            paths.append(path)
-
-        representation_id = representation_entity.get("id", "")
-
-        return io.NodeOutput(
-            path,
-            paths,
-            ui=ui.PreviewText(representation_id)
-        )
+        return io.NodeOutput(filepath)

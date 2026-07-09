@@ -41,7 +41,8 @@ const AYON_TOOL_ACTIONS = [
   }
 ]
 
-function get_ayon_extension() {
+
+export function get_ayon_extension() {
   const exts = app.extensions;
   return exts.find((el) => el.name == AYON_EXTENSION_NAME)
 }
@@ -582,6 +583,10 @@ app.registerExtension({
           console.log(data);
           app.loadGraphData(app.graph.serialize(), true, true, data.new_name);
           return true;
+        })
+
+        this.IFRAMERPC.register('clientMethod', async (data) => {
+          return await RPC.call(data.method, data.params);
         })
 
         this.IFRAMERPC.register('createNode', (data) => {
