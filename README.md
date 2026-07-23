@@ -41,7 +41,7 @@ More information (including header settings and further security issues) is prov
 
 ### Multi-Tab / RPC Limitations in ComfyUI Addon
 
-A quick head-up on how ComfyUI handles browser sessions:
+A quick heads-up on how ComfyUI handles browser sessions:
 
 - **Single RPC Connection:** The addon isn't built to handle multiple open tabs simultaneously because the RPC connection can only link to one tab at a time.
 - **No Multi-Tab Execution:** Only the active tab responds. There isn't an API method to switch tabs remotely or push executions to inactive tabs.
