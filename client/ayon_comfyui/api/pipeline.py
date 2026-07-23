@@ -46,13 +46,6 @@ class ComfyUIHost(HostBase, IWorkfileHost, ILoadHost, IPublishHost):
 
     name = "comfyui"
 
-    _last_path: str = ""
-
-    def __init__(self):
-        super().__init__()
-        # Establish connection?
-        # If not done here then deperecate this.
-
     def get_app_information(self) -> ApplicationInformation:
         """Return application information."""
         return ApplicationInformation(
@@ -85,18 +78,36 @@ class ComfyUIHost(HostBase, IWorkfileHost, ILoadHost, IPublishHost):
 
     def get_current_workfile(self):
         # Not too great, relies on a workfile having been opened
-        return self._last_path or None
+        return self.stub.get_workfile_path()
 
     def open_workfile(self, filepath):
         self.stub.load_workfile(filepath)
+        # After load, enforce that we track this file to exist at a certain
+        # path, so that `get_current_workfile` will report that path.
+        self.stub.set_workfile_path(filepath)
         return True
 
     def save_workfile(self, dst_path=None):
+        # Overwrite if no path is set
+        if dst_path is None:
+            dst_path = self.stub.get_workfile_path()
+            assert isinstance(dst_path, str)
+
+        # Set workfile path metadata inside the graph
+        self.stub.set_workfile_path(dst_path)
+
+        # Serialize the workfile and write it to disk
         workfile: str = self.stub.query_workfile()
         if workfile and isinstance(dst_path, str):
             with open(dst_path, mode="w", encoding="utf-8") as f:
                 f.write(workfile)
-                self.__class__._last_path = dst_path  # noqa: SLF001
+
+        # Save it 'internally' for ComfyUI too (perform Save As semantics)
+        # TODO: This would error if there's already another saved workflow with
+        #  same name. So we may need to ensure at least uniqueness within the
+        #  ComfyUI local storage
+        graph_name = os.path.splitext(os.path.basename(dst_path))[0]
+        self.stub.save(graph_name)
 
     @property
     def stub(self) -> RPCStub:

@@ -1,17 +1,17 @@
 import os
-import re
 
 import pyblish.api
-from ayon_comfyui.api.pipeline import ComfyUIHost
-from ayon_core.pipeline import (
-    registered_host,
-)
 
 
 class CollectWorkfile(pyblish.api.InstancePlugin):
-    """Collect current script for publish."""
+    """Collect current workflow path for publish.
 
-    order = pyblish.api.CollectorOrder + 0.1
+    Note: This does not 'save' the current workfile and hence it may use
+    an outdated state of the graph. It may make more sense to make this an
+    extractor and serialize it on extraction instead.
+    """
+
+    order = pyblish.api.CollectorOrder - 0.49
     label = "Collect Workfile"
     hosts = ["comfyui"]
     families = ["workfile"]
@@ -19,59 +19,23 @@ class CollectWorkfile(pyblish.api.InstancePlugin):
     default_variant = "Main"
 
     def process(self, instance):
-        proj = os.environ.get("AYON_PROJECT_NAME")[:3]
-        task = os.environ.get("AYON_TASK_NAME")
-        folder = os.environ.get("AYON_FOLDER_PATH").split("/")[-1]
-        workdir = os.environ.get("AYON_WORKDIR")
-        self.log.debug(workdir)
 
-        regex = rf"{proj}_{folder}_{task}" + r"_v(\d{3})[\w\.]+"
-        self.log.debug(os.listdir(workdir))
-        self.log.debug(regex)
-        files = [
-            file for file in os.listdir(workdir) if file.endswith(".json")
-        ]
-        self.log.debug("Work directory files: %s", files)
-        vers = [
-            int(re.match(regex, file).group(1))
-            for file in files
-            if re.match(regex, file) is not None
-        ]
-        max_ver = max(vers) if vers else 1
+        current_workfile: str | None = instance.context.data["currentFile"]
+        if current_workfile is None:
+            self.log.warning(
+                f"Can't collect current workfile because it's unsaved."
+            )
+            return
 
-        max_file = next(
-            (file for file in files if f"v{max_ver:03}" in file), None
-        )
-
-        ext = ".json"
-        instance.data["anatomyData"] = instance.context.data["anatomyData"]
-        self.log.debug(instance.data["anatomyData"])
-        instance.data["do_increment"] = True
-
-        # staging_dir = get_instance_staging_dir(instance)
-        staging_dir = workdir
-
-        if not vers or max_file is None:
-            max_file = f"{proj}_{folder}_{task}_v{max_ver:03}.json"
-            host: ComfyUIHost = registered_host()
-            host.save_workfile(os.path.join(staging_dir, max_file))
-            instance.data["do_increment"] = False
-        else:
-            pass
-            # save_next_version will do this
-            # source = os.path.join(workdir, max_file)
-            # destination = os.path.join(staging_dir, max_file)
-            #
-            # shutil.copy2(source, destination)
-
-        instance.context.data["currentFile"] = max_file
+        staging_dir, filename = os.path.split(current_workfile)
+        ext = os.path.splitext(filename)[1]
 
         # creating representation
-        instance.data["representations"].append(
+        instance.data.setdefault("representations", []).append(
             {
                 "name": ext[1:],
                 "ext": ext[1:],
-                "files": max_file,
+                "files": filename,
                 "stagingDir": staging_dir,
             }
         )

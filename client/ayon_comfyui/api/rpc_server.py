@@ -27,8 +27,32 @@ logging.basicConfig(force=True, stream=sys.stdout, level=LOG_LEVEL)
 log = logging.getLogger("ayon_comfyui")
 
 
+def show_script_editor():
+    from ayon_core.tools.console_interpreter import InterpreterController
+    from ayon_core.tools.console_interpreter.ui import ConsoleInterpreterWindow
+    from qt import QtCore
+
+    # Global so it doesn't get garbage collected instantly
+    global console_window
+    if console_window is None:
+        controller = InterpreterController(name="comfyui")
+        console_window = ConsoleInterpreterWindow(controller)
+        console_window.setWindowTitle("Python Script Editor - ComfyUI")
+        console_window.setWindowFlags(
+            console_window.windowFlags() |
+            QtCore.Qt.Dialog |
+            QtCore.Qt.WindowMinimizeButtonHint)
+    console_window.show()
+    console_window.raise_()
+    console_window.activateWindow()
+
+
 def show_tool_by_name(tool_name: str) -> None:
     """Show host tool by name, with default settings."""
+    if tool_name == "scripteditor":
+        show_script_editor()
+        return
+
     kwargs = {}
     if tool_name == "loader":
         kwargs["use_context"] = True
@@ -42,52 +66,6 @@ def show_tool_by_name(tool_name: str) -> None:
 
     host_tools.show_tool_by_name(tool_name, **kwargs)
 
-
-# TODO(@sas): look for a better way to do this.
-#             ayon_api.get_representations is very slow.
-def _get_workfile_path_from_name(workfile_name: str) -> Path:
-    """Return found workfile path in representations, else None."""
-    paths = {
-        Path(x["attrib"]["path"]).stem: Path(x["attrib"]["path"])
-        for x in get_representations(
-            project_name="testing", representation_names=["json"]
-        )
-        if "workfile" in x["attrib"]["path"]
-    }
-    return paths.get(workfile_name)
-
-
-def _get_workfile_path_from_name_env(workfile_name: str) -> Path | None:
-    """Return found workfile path from AYON workdir folder, else None.
-
-    Raises:
-        FileNotFoundError: if workdir is not found
-    """
-    workdir = os.environ.get("AYON_WORKDIR")
-    if workdir is None:
-        raise FileNotFoundError("Workdir not found.")  # noqa: EM101
-
-    filepaths = (
-        Path(workdir) / file
-        for file in os.listdir(workdir)
-        if not os.path.isdir(os.path.join(workdir, file))
-        and Path(file).suffix == ".json"
-    )
-    path_dict = {p.stem: p for p in filepaths}
-    return path_dict.get(workfile_name)
-
-
-def overwrite_workfile(workfile_name: str, workfile_contents: str) -> None:
-    """Overwrite workfile if it exists.
-
-    Show workfiles menu if no path was matched.
-    """
-    path = _get_workfile_path_from_name_env(workfile_name=workfile_name)
-    if path:
-        path.write_text(data=workfile_contents, encoding="utf-8")
-        return
-    # As a backup, show workfiles.
-    show_tool_by_name("workfiles")
 
 
 def pull_origin_from_settings() -> str:
@@ -148,23 +126,6 @@ class AyonLocalHost(Route):
             self.qt_thread.schedule(show_tool_by_name, tool_name)
             return f"{tool_name} scheduled in qt_thread"
         return tool_name
-
-    @decorators.proxy
-    async def requestSaveByName(  # noqa: N802
-        self, file_name: str, workfile_contents: str
-    ) -> None:
-        """Schedule saving workfile in thread.
-
-        File name is without extension (as represented in ComfyUI tab)
-        """
-        log.debug(f"origin {self.socket.request.headers}")  # noqa: G004
-        log.debug("Saving workfile in place")
-        if self.qt_thread:
-            self.qt_thread.schedule(
-                overwrite_workfile, file_name, workfile_contents
-            )
-            return f"{file_name} save scheduled in qt_thread"
-        return file_name
 
 
 class RPCServerThread(Thread):
